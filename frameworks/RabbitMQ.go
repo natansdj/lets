@@ -7,9 +7,9 @@ import (
  "os"
  "time"
 
- "github.com/1ets/lets"
- "github.com/1ets/lets/rabbitmq"
- "github.com/1ets/lets/types"
+ "github.com/natansdj/lets"
+ "github.com/natansdj/lets/rabbitmq"
+ "github.com/natansdj/lets/types"
 
  "github.com/rabbitmq/amqp091-go"
 )

@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/1ets/lets/drivers"
-	"github.com/1ets/lets/frameworks"
+	"github.com/natansdj/lets/drivers"
+	"github.com/natansdj/lets/frameworks"
 )
 
 func Launching() {

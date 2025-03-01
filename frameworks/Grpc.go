@@ -5,8 +5,8 @@ import (
 	"log"
 	"net"
 
-	"github.com/1ets/lets"
-	"github.com/1ets/lets/types"
+	"github.com/natansdj/lets"
+	"github.com/natansdj/lets/types"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

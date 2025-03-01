@@ -5,8 +5,8 @@ import (
 	"net"
 	"slices"
 
-	"github.com/1ets/lets"
-	"github.com/1ets/lets/types"
+	"github.com/natansdj/lets"
+	"github.com/natansdj/lets/types"
 )
 
 var InfoNetwork *types.IdentityNetwork

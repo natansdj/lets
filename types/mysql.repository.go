@@ -5,7 +5,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/1ets/lets"
+	"github.com/natansdj/lets"
 	"gorm.io/gorm"
 )
 

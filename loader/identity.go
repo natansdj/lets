@@ -1,6 +1,6 @@
 package loader
 
-import "github.com/1ets/lets/types"
+import "github.com/natansdj/lets/types"
 
 // App Informations
 var InfoIdentService *types.IdentityService

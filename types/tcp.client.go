@@ -1,6 +1,6 @@
 package types
 
-import "github.com/1ets/lets"
+import "github.com/natansdj/lets"
 
 // Default grpc configuration
 const (

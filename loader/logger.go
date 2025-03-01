@@ -5,7 +5,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/1ets/lets"
+	"github.com/natansdj/lets"
 
 	"github.com/kataras/golog"
 	"github.com/kataras/pio"

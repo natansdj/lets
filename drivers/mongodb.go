@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/1ets/lets"
-	"github.com/1ets/lets/types"
+	"github.com/natansdj/lets"
+	"github.com/natansdj/lets/types"
 
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"

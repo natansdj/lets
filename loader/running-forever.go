@@ -5,7 +5,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/1ets/lets"
+	"github.com/natansdj/lets"
 )
 
 // List of stop function

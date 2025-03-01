@@ -1,9 +1,9 @@
 package boot
 
 import (
-	"github.com/1ets/lets/drivers"
-	"github.com/1ets/lets/frameworks"
-	"github.com/1ets/lets/loader"
+	"github.com/natansdj/lets/drivers"
+	"github.com/natansdj/lets/frameworks"
+	"github.com/natansdj/lets/loader"
 )
 
 // List of initializer

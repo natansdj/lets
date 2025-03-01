@@ -1,4 +1,4 @@
-module github.com/1ets/lets
+module github.com/natansdj/lets
 
 go 1.22.7
 

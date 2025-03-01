@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/1ets/lets"
+	"github.com/natansdj/lets"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )

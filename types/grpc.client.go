@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/1ets/lets"
+	"github.com/natansdj/lets"
 	"google.golang.org/grpc"
 )
 

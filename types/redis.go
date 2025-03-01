@@ -3,7 +3,7 @@ package types
 import (
 	"fmt"
 
-	"github.com/1ets/lets"
+	"github.com/natansdj/lets"
 )
 
 const (

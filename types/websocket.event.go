@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 
-	"github.com/1ets/lets"
+	"github.com/natansdj/lets"
 	"github.com/gorilla/websocket"
 )
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/1ets/lets"
+	"github.com/natansdj/lets"
 )
 
 type IEvent interface {
