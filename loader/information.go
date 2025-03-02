@@ -91,8 +91,10 @@ func Launching() {
 				}
 
 				if consumers := server.GetConsumers(); consumers != nil {
-					for _, consumer := range consumers {
-						printer.printHeading("RabbitMQ Consumers")
+     printer.printHeading("RabbitMQ Consumers")
+     printer.printData("Count:", len(consumers))
+     printer.hr()
+     for _, consumer := range consumers {
 						printer.printStruct(consumer)
 					}
 				}
@@ -153,6 +155,9 @@ func (l *launcher) printData(field string, value any) {
 	case reflect.Bool:
 		var format = "// %-30s : %-61t //\n"
 		fmt.Fprintf(l.writer, format, field, value)
+	case reflect.Int:
+		var format = "// %-30s : %-61d //\n"
+		fmt.Fprintf(l.writer, format, field, value)
 	}
 }
 
@@ -194,6 +199,9 @@ func (l *launcher) printStruct(info any) {
 				// lets.LogD("Unknown Type: %s", f.Type.String())
 			}
 		} else {
+   if f.Tag.Get("hidden") != "" {
+    return
+   }
 			if v.Field(i).Interface() != "" {
 				l.printData(name, v.Field(i).Interface())
 			}

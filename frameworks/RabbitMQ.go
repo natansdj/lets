@@ -5,6 +5,7 @@ import (
  "encoding/json"
  "fmt"
  "os"
+ "sync"
  "time"
 
  "github.com/natansdj/lets"
@@ -46,7 +47,7 @@ func (r *rabbitServer) connect() {
   err = nil
   r.connection, err = amqp091.DialConfig(r.dsn, r.config)
   if err != nil {
-   lets.LogE("RabbitMQ: %s", err.Error())
+   lets.LogE("ERR00 RabbitMQ: %s", err.Error())
    lets.LogE("RabbitMQ: wait retry connection ...")
    <-time.After(r.retryDuration)
    continue
@@ -62,7 +63,7 @@ func (r *rabbitServer) connect() {
 
  // Create channel connection.
  if r.channel, err = r.connection.Channel(); err != nil {
-  lets.LogE("RabbitMQ: %s", err.Error())
+  lets.LogE("ERR10 RabbitMQ: %s", err.Error())
   return
  }
 
@@ -107,54 +108,9 @@ type rabbitConsumer struct {
 
 // Start consuming.
 func (r *rabbitConsumer) consume(server *rabbitServer, consumer types.IRabbitMQConsumer) {
- lets.LogI("RabbitMQ Consumer: consuming ...")
+ lets.LogD("RabbitMQ Consumer: consuming ...")
 
  var err error
-
- // Create channel connection.
- if server.channel, err = server.connection.Channel(); err != nil {
-  lets.LogE("RabbitMQ: %s", err.Error())
-  return
- }
- defer server.channel.Close()
-
- // Declare (or using existing) queue.
- if r.queue, err = server.channel.QueueDeclare(
-  consumer.GetQueue(), // name of the queue
-  true,                // durable
-  false,               // delete when unused
-  false,               // exclusive
-  false,               // noWait
-  nil,                 // arguments
- ); err != nil {
-  lets.LogE("RabbitMQ: %s", err.Error())
-  return
- }
-
- // Queue channel qos
- if err = server.channel.Qos(
-  consumer.GetPrefetchCount(),
-  consumer.GetPrefetchSize(),
-  false,
- ); err != nil {
-  return
- }
-
- // Bind queue to exchange.
- if err = server.channel.QueueBind(
-  r.queue.Name,             // name of the queue
-  consumer.GetRoutingKey(), // routing key
-  consumer.GetExchange(),   // sourceExchange
-  false,                    // noWait
-  nil,                      // arguments
- ); err != nil {
-  lets.LogE("RabbitMQ: %s", err.Error())
-
-  // Retry Connection
-  time.Sleep(10 * time.Second)
-  go r.consume(server, consumer)
-  return
- }
 
  // Consume message
  if r.deliveries, err = server.channel.Consume(
@@ -166,11 +122,12 @@ func (r *rabbitConsumer) consume(server *rabbitServer, consumer types.IRabbitMQC
   false,              // noWait
   nil,                // arguments
  ); err != nil {
-  lets.LogE("RabbitMQ: %s", err.Error())
+  lets.LogE("ERR24 RabbitMQ: %s", err.Error())
 
   // Retry Connection
   time.Sleep(10 * time.Second)
-  go r.consume(server, consumer)
+  r.reconnect(server, consumer)
+  r.consume(server, consumer)
   return
  }
 
@@ -179,10 +136,13 @@ func (r *rabbitConsumer) consume(server *rabbitServer, consumer types.IRabbitMQC
 
 func (r *rabbitConsumer) listenMessage(server *rabbitServer, consumer types.IRabbitMQConsumer) {
  cleanup := func() {
+  //TODO : handle reconnection
   lets.LogE("RabbitMQ Server DC: %s", "Delivery channel is closed.")
-  r.listenMessage(server, consumer)
-
-  r.done <- nil
+  //r.listenMessage(server, consumer)
+  time.Sleep(1 * time.Second)
+  r.consume(server, consumer)
+  lets.LogE("RabbitMQ listenMessage reconsume...")
+  //r.done <- nil
  }
  defer cleanup()
 
@@ -190,7 +150,7 @@ func (r *rabbitConsumer) listenMessage(server *rabbitServer, consumer types.IRab
  for delivery := range r.deliveries {
   if consumer.GetDebug() {
    deliveryCount++
-   lets.LogD("RabbitMQ Server: %d Byte delivery: [%v] \n%q", len(delivery.Body), delivery.DeliveryTag, delivery.Body)
+   lets.LogD("RabbitMQ Server: %s %d Byte delivery: [%v] \n%q", consumer.GetName(), len(delivery.Body), delivery.DeliveryTag, delivery.Body)
   }
 
   // Bind body into types.RabbitBody.
@@ -228,11 +188,74 @@ func (r *rabbitConsumer) listenMessage(server *rabbitServer, consumer types.IRab
   // Call event handler.
   r.engine.Call(event.Name, &event)
 
-  // If not auto ack, trigger ackknowledge for message
+  // If not auto ack, trigger acknowledge for message
   if !server.autoAck {
    delivery.Ack(false)
   }
  }
+}
+
+func (r *rabbitConsumer) reconnect(server *rabbitServer, consumer types.IRabbitMQConsumer) {
+ var err error
+ // Create channel connection.
+ if server.channel, err = server.connection.Channel(); err != nil {
+  lets.LogE("ERR R00 RabbitMQ: %s", err.Error())
+  return
+ }
+
+ r.qos(server, consumer)
+ r.declare(server, consumer)
+}
+
+func (r *rabbitConsumer) qos(server *rabbitServer, consumer types.IRabbitMQConsumer) {
+ // Queue channel qos
+ if err := server.channel.Qos(
+  consumer.GetPrefetchCount(),
+  consumer.GetPrefetchSize(),
+  false,
+ ); err != nil {
+  return
+ }
+}
+
+func (r *rabbitConsumer) declare(server *rabbitServer, consumer types.IRabbitMQConsumer) {
+ var err error
+ // lets.LogI("RabbitMQ: declare queue ...")
+ if server.channel, err = server.connection.Channel(); err != nil {
+  lets.LogE("ERR R00 RabbitMQ: %s", err.Error())
+  return
+ }
+ 
+ // Declare (or using existing) queue.
+ if r.queue, err = server.channel.QueueDeclare(
+  consumer.GetQueue(), // name of the queue
+  true,                // durable
+  false,               // delete when unused
+  false,               // exclusive
+  false,               // noWait
+  nil,                 // arguments
+ ); err != nil {
+  lets.LogE("ERR D01 RabbitMQ: %s", err.Error())
+  return
+ }
+
+ // Bind queue to exchange.
+ if err = server.channel.QueueBind(
+  r.queue.Name,             // name of the queue
+  consumer.GetRoutingKey(), // routing key
+  consumer.GetExchange(),   // sourceExchange
+  false,                    // noWait
+  nil,                      // arguments
+ ); err != nil {
+  lets.LogE("ERR D02 RabbitMQ: %s", err.Error())
+
+  // Retry Connection
+  time.Sleep(10 * time.Second)
+  go r.declare(server, consumer)
+  return
+ }
+
+ lets.LogD("RabbitMQ: declare queue finish ...")
 }
 
 // RabbitMQ publisher definitions.
@@ -303,6 +326,7 @@ func RabbitMQ() (disconnectors []func()) {
 
  // Running RabbitMQ
  if servers := RabbitMQConfig.GetServers(); len(servers) != 0 {
+  time.Sleep(100 * time.Millisecond)
   lets.LogI("RabbitMQ Starting ...")
 
   for _, server := range servers {
@@ -315,16 +339,36 @@ func RabbitMQ() (disconnectors []func()) {
    if consumers := server.GetConsumers(); len(consumers) != 0 {
     lets.LogI("RabbitMQ Consumer Starting ...")
 
-    for _, consumer := range consumers {
+    wg := &sync.WaitGroup{}
+    wg.Add(len(consumers))
+
+    for i, consumer := range consumers {
      var rc = rabbitConsumer{
       engine: &rabbitmq.Engine{
        Debug: consumer.GetDebug(),
       },
      }
 
+     if i == 0 {
+      //rc.declare(&rs, consumer)
+      rc.qos(&rs, consumer)
+     }
+
      consumer.GetListener()(rc.engine)
-     go rc.consume(&rs, consumer)
+
+     time.Sleep(100 * time.Millisecond)
+     go func(c types.IRabbitMQConsumer) {
+      wg.Done()
+      rc.declare(&rs, c)
+      rc.qos(&rs, c)
+      rc.consume(&rs, c)
+     }(consumer)
     }
+
+    go func() {
+     wg.Wait()
+     lets.LogI("RabbitMQ Consumer Done ...")
+    }()
    }
 
    if publishers := server.GetPublishers(); len(publishers) != 0 {

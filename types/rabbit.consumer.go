@@ -34,16 +34,16 @@ type IRabbitMQConsumer interface {
 
 // Target host information.
 type RabbitMQConsumer struct {
-	Name          string `json:"name"`
-	Exchange      string `json:"exchange"`
-	ExchangeType  string `json:"type"`
-	RoutingKey    string `json:"routing_key"`
-	Queue         string `json:"queue"`
-	Debug         string `json:"debug"`
-	Listener      func(Engine)
-	CustomPayload IRabbitBody `json:"custom_payload"`
-	PrefetchCount int         `json:"prefetch_count"`
-	PrefetchSize  int         `json:"prefetch_size"`
+ Name          string       `json:"name" hidden:"true"`
+ Exchange      string       `json:"exchange" hidden:"true"`
+ ExchangeType  string       `json:"type" hidden:"true"`
+ RoutingKey    string       `json:"routing_key" hidden:"true"`
+ Queue         string       `json:"queue" hidden:"true"`
+ Debug         string       `json:"debug" hidden:"true"`
+ Listener      func(Engine)
+ CustomPayload IRabbitBody  `json:"custom_payload" hidden:"true"`
+ PrefetchCount int          `json:"prefetch_count" hidden:"true"`
+ PrefetchSize  int          `json:"prefetch_size" hidden:"true"`
 }
 
 // Get Name.
