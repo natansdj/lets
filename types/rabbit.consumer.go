@@ -30,20 +30,22 @@ type IRabbitMQConsumer interface {
 	GetBody() IRabbitBody
 	GetPrefetchCount() int
 	GetPrefetchSize() int
+	GetConcurrentCall() int
 }
 
 // Target host information.
 type RabbitMQConsumer struct {
- Name          string       `json:"name" hidden:"true"`
- Exchange      string       `json:"exchange" hidden:"true"`
- ExchangeType  string       `json:"type" hidden:"true"`
- RoutingKey    string       `json:"routing_key" hidden:"true"`
- Queue         string       `json:"queue" hidden:"true"`
- Debug         string       `json:"debug" hidden:"true"`
- Listener      func(Engine)
- CustomPayload IRabbitBody  `json:"custom_payload" hidden:"true"`
- PrefetchCount int          `json:"prefetch_count" hidden:"true"`
- PrefetchSize  int          `json:"prefetch_size" hidden:"true"`
+ Name           string `json:"name" hidden:"true"`
+ Exchange       string `json:"exchange" hidden:"true"`
+ ExchangeType   string `json:"type" hidden:"true"`
+ RoutingKey     string `json:"routing_key" hidden:"true"`
+ Queue          string `json:"queue" hidden:"true"`
+ Debug          string `json:"debug" hidden:"true"`
+ Listener       func(Engine)
+ CustomPayload  IRabbitBody `json:"custom_payload" hidden:"true"`
+ PrefetchCount  int         `json:"prefetch_count" hidden:"true"`
+ PrefetchSize   int         `json:"prefetch_size" hidden:"true"`
+ ConcurrentCall int         `json:"concurrent_call" hidden:"true"`
 }
 
 // Get Name.
@@ -147,4 +149,11 @@ func (r *RabbitMQConsumer) GetPrefetchSize() int {
 	}
 
 	return r.PrefetchSize
+}
+
+func (r *RabbitMQConsumer) GetConcurrentCall() int {
+	if r.ConcurrentCall <= 0 {
+		return 1
+	}
+	return r.ConcurrentCall
 }

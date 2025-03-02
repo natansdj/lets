@@ -147,6 +147,7 @@ func (r *rabbitConsumer) listenMessage(server *rabbitServer, consumer types.IRab
  defer cleanup()
 
  var deliveryCount uint64 = 0
+ sem := make(chan struct{}, consumer.GetConcurrentCall()) // limit goroutines
  for delivery := range r.deliveries {
   if consumer.GetDebug() {
    deliveryCount++
@@ -186,7 +187,15 @@ func (r *rabbitConsumer) listenMessage(server *rabbitServer, consumer types.IRab
   }
 
   // Call event handler.
-  r.engine.Call(event.Name, &event)
+  if consumer.GetConcurrentCall() > 1 {
+   sem <- struct{}{}
+   go func(ev *types.Event) {
+    defer func() { <-sem }()
+    r.engine.Call(ev.Name, ev)
+   }(&event)
+  } else {
+   r.engine.Call(event.Name, &event)
+  }
 
   // If not auto ack, trigger acknowledge for message
   if !server.autoAck {
@@ -225,7 +234,7 @@ func (r *rabbitConsumer) declare(server *rabbitServer, consumer types.IRabbitMQC
   lets.LogE("ERR R00 RabbitMQ: %s", err.Error())
   return
  }
- 
+
  // Declare (or using existing) queue.
  if r.queue, err = server.channel.QueueDeclare(
   consumer.GetQueue(), // name of the queue
