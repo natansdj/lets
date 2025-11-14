@@ -1,23 +1,25 @@
 module github.com/natansdj/lets
 
-go 1.25
+go 1.24.0
+
+retract v1.0.4
 
 require (
 	github.com/bongnv/saga v0.0.0-20180315103309-62f974ba9423
-	github.com/gin-contrib/gzip v1.2.3
-	github.com/gin-gonic/gin v1.10.1
+	github.com/gin-contrib/gzip v1.0.1
+	github.com/gin-gonic/gin v1.10.0
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/google/go-querystring v1.1.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/joho/godotenv v1.5.1
-	github.com/kataras/golog v0.1.15
-	github.com/kataras/pio v0.0.14
+	github.com/kataras/golog v0.1.12
+	github.com/kataras/pio v0.0.13
 	github.com/rabbitmq/amqp091-go v1.10.0
-	go.mongodb.org/mongo-driver v1.17.4
-	google.golang.org/grpc v1.75.1
-	gorm.io/driver/mysql v1.6.0
-	gorm.io/driver/sqlite v1.6.0
-	gorm.io/gorm v1.31.0
+	go.mongodb.org/mongo-driver v1.16.1
+	google.golang.org/grpc v1.65.0
+	gorm.io/driver/mysql v1.5.7
+	gorm.io/driver/sqlite v1.5.6
+	gorm.io/gorm v1.25.12
 )
 
 require (
