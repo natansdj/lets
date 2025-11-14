@@ -23,6 +23,14 @@ type IRedis interface {
 	GetDsn() string
 	// DebugMode() bool
 	GetRepositories() []IRedisRepository
+	// Connection pool configuration
+	GetPoolSize() int
+	GetMinIdleConns() int
+	GetMaxRetries() int
+	GetDialTimeout() int  // in seconds
+	GetReadTimeout() int  // in seconds
+	GetWriteTimeout() int // in seconds
+	GetPoolTimeout() int  // in seconds
 }
 
 type Redis struct {
@@ -94,4 +102,46 @@ func (r *Redis) GetDsn() string {
 		r.GetHost(),
 		r.GetPort(),
 	)
+}
+
+// GetPoolSize returns the maximum number of socket connections
+func (r *Redis) GetPoolSize() int {
+	// Default: 100 connections
+	return 100
+}
+
+// GetMinIdleConns returns the minimum number of idle connections
+func (r *Redis) GetMinIdleConns() int {
+	// Default: 10 idle connections
+	return 10
+}
+
+// GetMaxRetries returns the maximum number of retries before giving up
+func (r *Redis) GetMaxRetries() int {
+	// Default: 3 retries
+	return 3
+}
+
+// GetDialTimeout returns dial timeout in seconds
+func (r *Redis) GetDialTimeout() int {
+	// Default: 5 seconds
+	return 5
+}
+
+// GetReadTimeout returns read timeout in seconds
+func (r *Redis) GetReadTimeout() int {
+	// Default: 3 seconds
+	return 3
+}
+
+// GetWriteTimeout returns write timeout in seconds
+func (r *Redis) GetWriteTimeout() int {
+	// Default: 3 seconds
+	return 3
+}
+
+// GetPoolTimeout returns pool timeout in seconds
+func (r *Redis) GetPoolTimeout() int {
+	// Default: 4 seconds
+	return 4
 }

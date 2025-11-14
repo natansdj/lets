@@ -64,14 +64,26 @@ func (m *SqLiteProvider) Connect() {
 		return
 	}
 
+	// Configurable connection pool settings optimized for SQLite
+	maxIdleConns := m.Config.GetMaxIdleConns()
+	maxOpenConns := m.Config.GetMaxOpenConns()
+	connMaxLifetime := time.Duration(m.Config.GetConnMaxLifetime()) * time.Second
+
 	// SetMaxIdleConns sets the maximum number of connections in the idle connection pool.
-	m.Sql.SetMaxIdleConns(10)
+	m.Sql.SetMaxIdleConns(maxIdleConns)
 
 	// SetMaxOpenConns sets the maximum number of open connections to the database.
-	m.Sql.SetMaxOpenConns(100)
+	m.Sql.SetMaxOpenConns(maxOpenConns)
 
 	// SetConnMaxLifetime sets the maximum amount of time a connection may be reused.
-	m.Sql.SetConnMaxLifetime(time.Hour)
+	m.Sql.SetConnMaxLifetime(connMaxLifetime)
+
+	// Enable WAL mode for better concurrency
+	m.Gorm.Exec("PRAGMA journal_mode=WAL")
+	m.Gorm.Exec("PRAGMA synchronous=NORMAL")
+	m.Gorm.Exec("PRAGMA cache_size=-64000") // 64MB cache
+
+	lets.LogI("SQLite Connected (MaxIdle: %d, MaxOpen: %d, Lifetime: %v, WAL: enabled)", maxIdleConns, maxOpenConns, connMaxLifetime)
 }
 
 func (m *SqLiteProvider) Disconnect() {

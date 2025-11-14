@@ -34,6 +34,11 @@ type IMySQL interface {
 	Migration() bool
 	GetQueryFields() bool
 	GetDisableNestedTransaction() bool
+	// Connection pool configuration
+	GetMaxIdleConns() int
+	GetMaxOpenConns() int
+	GetConnMaxLifetime() int // in seconds
+	GetMaxRetries() int
 }
 
 type MySQL struct {
@@ -149,4 +154,28 @@ func (mysql *MySQL) GetQueryFields() bool {
 
 func (mysql *MySQL) GetDisableNestedTransaction() bool {
 	return mysql.DisableNestedTransaction
+}
+
+// GetMaxIdleConns returns the maximum number of connections in the idle connection pool
+func (mysql *MySQL) GetMaxIdleConns() int {
+	// Default: 10 connections
+	return 10
+}
+
+// GetMaxOpenConns returns the maximum number of open connections to the database
+func (mysql *MySQL) GetMaxOpenConns() int {
+	// Default: 100 connections
+	return 100
+}
+
+// GetConnMaxLifetime returns the maximum amount of time a connection may be reused (in seconds)
+func (mysql *MySQL) GetConnMaxLifetime() int {
+	// Default: 3 minutes (180 seconds)
+	return 180
+}
+
+// GetMaxRetries returns the maximum number of retry attempts for connection
+func (mysql *MySQL) GetMaxRetries() int {
+	// Default: 3 retries
+	return 3
 }

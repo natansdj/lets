@@ -1,0 +1,28 @@
+# Auto detect text files and normalize line endings to LF
+* text=auto
+
+# Explicitly enforce LF for specific file types
+*.go text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.env* text eol=lf
+*.sh text eol=lf
+*.properties text eol=lf
+*.sql text eol=lf
+*.txt text eol=lf
+*.proto text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mov binary
+*.mp4 binary
+*.mp3 binary
+*.gz binary
+*.zip binary
+*.7z binary

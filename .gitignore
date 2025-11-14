@@ -2,3 +2,6 @@
 .github/copilot*
 .vscode
 .DS_Store
+/*.md
+!/README.md
+/docs/*.md

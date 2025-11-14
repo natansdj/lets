@@ -1,12 +1,14 @@
 package frameworks
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"time"
 
+	"github.com/gin-contrib/gzip"
 	"github.com/natansdj/lets"
 	"github.com/natansdj/lets/types"
-	"github.com/gin-contrib/gzip"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,6 +23,7 @@ type HttpServer struct {
 	middleware func(*gin.Engine)
 	router     func(*gin.Engine)
 	gzip       bool
+	httpServer *http.Server
 }
 
 // Initialize service
@@ -68,21 +71,44 @@ func (http *HttpServer) init() {
 	}
 }
 
-// Run service
-func (http *HttpServer) serve() {
-	go func(http *HttpServer) {
-		err := http.engine.Run(http.server)
-		if err != nil {
-			lets.LogE(err.Error())
-		}
+// Run service with graceful shutdown support
+func (h *HttpServer) serve() {
+	h.httpServer = &http.Server{
+		Addr:    h.server,
+		Handler: h.engine,
+	}
 
-		time.Sleep(time.Second)
-		http.serve()
-	}(http)
+	go func() {
+		if err := h.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			lets.LogERL("http-server-error", "HTTP Server error: %v", err)
+			// Wait before potential retry
+			time.Sleep(time.Second * 3)
+		}
+	}()
+
+	lets.LogI("HTTP Server listening on %s", h.server)
 }
 
-func (r *HttpServer) Disconnect() {
+func (h *HttpServer) Disconnect() {
 	lets.LogI("HTTP Server Stopping ...")
+
+	if h.httpServer == nil {
+		lets.LogI("HTTP Server already stopped or not started")
+		return
+	}
+
+	// Create shutdown context with 5 second timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Attempt graceful shutdown
+	if err := h.httpServer.Shutdown(ctx); err != nil {
+		lets.LogE("HTTP Server forced shutdown: %v", err)
+		// Force close if graceful shutdown fails
+		if closeErr := h.httpServer.Close(); closeErr != nil {
+			lets.LogE("HTTP Server close error: %v", closeErr)
+		}
+	}
 
 	lets.LogI("HTTP Server Stopped ...")
 }

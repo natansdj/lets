@@ -31,6 +31,16 @@ type mysqlProvider struct {
 }
 
 func (m *mysqlProvider) Connect() {
+	m.connectWithRetry(0)
+}
+
+func (m *mysqlProvider) connectWithRetry(attempt int) {
+	maxRetries := m.Config.GetMaxRetries()
+	if attempt >= maxRetries {
+		lets.LogF("MySQL: Max connection retries (%d) exceeded", maxRetries)
+		return
+	}
+
 	var logType logger.Interface = logger.Default.LogMode(logger.Warn)
 	if m.Config.DebugMode() {
 		logType = logger.Default.LogMode(logger.Info)
@@ -56,29 +66,61 @@ func (m *mysqlProvider) Connect() {
 	})
 
 	if err != nil {
-		lets.LogE(err.Error())
-		time.Sleep(time.Second * 3)
-		m.Connect()
+		// Calculate exponential backoff
+		backoff := time.Second * time.Duration(1<<uint(attempt))
+		if backoff > 60*time.Second {
+			backoff = 60 * time.Second
+		}
 
+		lets.LogERL("mysql-connect-retry", "MySQL connection attempt %d failed: %v. Retrying in %v...", attempt+1, err, backoff)
+		time.Sleep(backoff)
+		m.connectWithRetry(attempt + 1)
 		return
 	}
 
 	m.Sql, err = m.Gorm.DB()
 	if err != nil {
-		time.Sleep(time.Second * 3)
-		m.Connect()
+		// Calculate exponential backoff
+		backoff := time.Second * time.Duration(1<<uint(attempt))
+		if backoff > 60*time.Second {
+			backoff = 60 * time.Second
+		}
 
+		lets.LogERL("mysql-db-retry", "MySQL DB() attempt %d failed: %v. Retrying in %v...", attempt+1, err, backoff)
+		time.Sleep(backoff)
+		m.connectWithRetry(attempt + 1)
 		return
 	}
 
+	// Configurable connection pool settings
+	maxIdleConns := m.Config.GetMaxIdleConns()
+	maxOpenConns := m.Config.GetMaxOpenConns()
+	connMaxLifetime := time.Duration(m.Config.GetConnMaxLifetime()) * time.Second
+
 	// SetMaxIdleConns sets the maximum number of connections in the idle connection pool.
-	m.Sql.SetMaxIdleConns(10)
+	m.Sql.SetMaxIdleConns(maxIdleConns)
 
 	// SetMaxOpenConns sets the maximum number of open connections to the database.
-	m.Sql.SetMaxOpenConns(100)
+	m.Sql.SetMaxOpenConns(maxOpenConns)
 
 	// SetConnMaxLifetime sets the maximum amount of time a connection may be reused.
-	m.Sql.SetConnMaxLifetime(time.Minute * 3)
+	m.Sql.SetConnMaxLifetime(connMaxLifetime)
+
+	// Verify connection with ping
+	if err = m.Sql.Ping(); err != nil {
+		// Calculate exponential backoff
+		backoff := time.Second * time.Duration(1<<uint(attempt))
+		if backoff > 60*time.Second {
+			backoff = 60 * time.Second
+		}
+
+		lets.LogERL("mysql-ping-retry", "MySQL ping attempt %d failed: %v. Retrying in %v...", attempt+1, err, backoff)
+		time.Sleep(backoff)
+		m.connectWithRetry(attempt + 1)
+		return
+	}
+
+	lets.LogI("MySQL Client Connected (MaxIdle: %d, MaxOpen: %d, Lifetime: %v)", maxIdleConns, maxOpenConns, connMaxLifetime)
 }
 
 func (m *mysqlProvider) Disconnect() {
