@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,10 +23,13 @@ var RabbitMQConfig types.IRabbitMQConfig
 type rabbitServer struct {
 	dsn           string
 	config        amqp091.Config
-	connection    *amqp091.Connection
-	channel       *amqp091.Channel
+	connection    *amqp091.Connection        // Legacy: Direct connection (deprecated, use pooledConn)
+	channel       *amqp091.Channel           // Legacy: Direct channel (deprecated, use channelMgr)
+	pooledConn    *rabbitmq.PooledConnection // New: Pooled connection
+	channelMgr    *rabbitmq.ChannelManager   // New: Channel manager
 	retryDuration time.Duration
 	autoAck       bool
+	usePool       bool // Flag to enable pool usage
 }
 
 // Initialize RabbitMQ server.
@@ -36,12 +40,43 @@ func (r *rabbitServer) init(config types.IRabbitMQServer) {
 	r.retryDuration = time.Duration(10) * time.Second
 	r.config.Heartbeat = time.Duration(5) * time.Second
 	r.autoAck = config.GetAutoAck()
+	r.usePool = true // Enable pooling by default
 }
 
 // Start consuming.
 func (r *rabbitServer) connect() {
-	// lets.LogI("RabbitMQ: connecting ...")
+	if r.usePool {
+		r.connectWithPool()
+	} else {
+		r.connectLegacy()
+	}
+}
 
+// connectWithPool uses the new connection pool (recommended)
+func (r *rabbitServer) connectWithPool() {
+	pool := rabbitmq.GetConnectionPool()
+
+	var err error
+	r.pooledConn, err = pool.GetConnection(r.dsn, r.config)
+	if err != nil {
+		lets.LogE("RabbitMQ Pool: Failed to get pooled connection: %v", err)
+		// Fallback to legacy connection
+		r.usePool = false
+		r.connectLegacy()
+		return
+	}
+
+	// Set legacy connection reference for backward compatibility
+	r.connection = r.pooledConn.GetRawConnection()
+
+	// Initialize channel manager
+	r.channelMgr = rabbitmq.NewChannelManager(r.pooledConn)
+
+	lets.LogI("RabbitMQ: Connected via pool (vhost: %s)", extractVHost(r.dsn))
+}
+
+// connectLegacy uses the old direct connection method (for backward compatibility)
+func (r *rabbitServer) connectLegacy() {
 	var err error
 	for {
 		err = nil
@@ -67,33 +102,59 @@ func (r *rabbitServer) connect() {
 		return
 	}
 
-	// type Queue struct {
-	// 	Name  string `json:"name"`
-	// 	VHost string `json:"vhost"`
-	// }
+	lets.LogI("RabbitMQ: connected (legacy mode)")
+}
 
-	// manager := "http://127.0.0.1:15672/api/queues/"
-	// client := &http.Client{}
-	// req, _ := http.NewRequest("GET", manager, nil)
-	// req.SetBasicAuth("guest", "guest")
-	// resp, _ := client.Do(req)
+// getChannel returns a channel, using pool if available
+func (r *rabbitServer) getChannel() (*amqp091.Channel, error) {
+	if r.usePool && r.channelMgr != nil {
+		pc, err := r.channelMgr.GetChannel()
+		if err != nil {
+			return nil, err
+		}
+		return pc.GetRawChannel(), nil
+	}
 
-	// value := make([]Queue, 0)
-	// json.NewDecoder(resp.Body).Decode(&value)
+	// Legacy: return the shared channel
+	if r.channel != nil {
+		return r.channel, nil
+	}
 
-	// for _, queue := range value {
-	// 	if strings.Contains(queue.Name, "amq.gen-") {
-	// 		lets.LogD("%s deleted", queue.Name)
-	// 		count, err := r.channel.QueueDelete(queue.Name, true, true, true)
-	// 		lets.LogD("%v %v", count, err)
-	// 	}
-	// }
+	return nil, fmt.Errorf("no channel available")
+}
 
-	lets.LogI("RabbitMQ: connected")
+// extractVHost extracts vhost from DSN for logging
+func extractVHost(dsn string) string {
+	for i := len(dsn) - 1; i >= 0; i-- {
+		if dsn[i] == '/' {
+			if i+1 < len(dsn) {
+				return dsn[i+1:]
+			}
+			return "/"
+		}
+	}
+	return "/"
 }
 
 func (r *rabbitServer) Disconnect() {
 	lets.LogI("RabbitMQ Client Stopping ...")
+
+	// Close channel manager if using pool
+	if r.usePool && r.channelMgr != nil {
+		if err := r.channelMgr.CloseAll(); err != nil {
+			lets.LogE("RabbitMQ: Error closing channel manager: %v", err)
+		}
+	}
+
+	// Close legacy channel if exists
+	if !r.usePool && r.channel != nil {
+		if err := r.channel.Close(); err != nil {
+			lets.LogE("RabbitMQ: Error closing channel: %v", err)
+		}
+	}
+
+	// Note: We don't close pooled connections here as they're managed by the pool
+	// and may be shared across multiple servers
 
 	lets.LogI("RabbitMQ Client Stopped ...")
 }
@@ -111,9 +172,33 @@ func (r *rabbitConsumer) consume(server *rabbitServer, consumer types.IRabbitMQC
 	lets.LogD("RabbitMQ Consumer: consuming ...")
 
 	var err error
+	var channel *amqp091.Channel
+
+	// Get channel from pool or legacy
+	if server.usePool && server.channelMgr != nil {
+		pc, err := server.channelMgr.GetChannel()
+		if err != nil {
+			lets.LogERL("rabbitmq-consume-channel-error", "ERR23 RabbitMQ: Failed to get channel: %s", err.Error())
+			time.Sleep(10 * time.Second)
+			r.reconnect(server, consumer)
+			r.consume(server, consumer)
+			return
+		}
+		channel = pc.GetRawChannel()
+	} else {
+		channel = server.channel
+	}
+
+	if channel == nil {
+		lets.LogERL("rabbitmq-consume-nil-channel", "ERR23.5 RabbitMQ: Channel is nil")
+		time.Sleep(10 * time.Second)
+		r.reconnect(server, consumer)
+		r.consume(server, consumer)
+		return
+	}
 
 	// Consume message
-	if r.deliveries, err = server.channel.Consume(
+	if r.deliveries, err = channel.Consume(
 		r.queue.Name,       // name
 		consumer.GetName(), // consumerTag,
 		server.autoAck,     // autoAck
@@ -148,17 +233,45 @@ func (r *rabbitConsumer) listenMessage(server *rabbitServer, consumer types.IRab
 
 	var deliveryCount uint64 = 0
 	sem := make(chan struct{}, consumer.GetConcurrentCall()) // limit goroutines
+
+	// Message processing loop
 	for delivery := range r.deliveries {
+		// CRITICAL: Check if delivery is from a closed channel (zero value)
+		// When channel closes, range returns zero values infinitely causing CPU spike
+		if delivery.DeliveryTag == 0 && len(delivery.Body) == 0 && delivery.ConsumerTag == "" {
+			lets.LogERL("rabbitmq-empty-delivery", "RabbitMQ Server: Empty delivery detected (channel likely closed) for consumer %s", consumer.GetName())
+			// Channel is closed, break out of loop to trigger reconnection via cleanup()
+			break
+		}
+
 		if consumer.GetDebug() {
 			deliveryCount++
 			lets.LogD("RabbitMQ Server: %s %d Byte delivery: [%v] \n%q", consumer.GetName(), len(delivery.Body), delivery.DeliveryTag, delivery.Body)
+		}
+
+		// VALIDATION: Check for empty or whitespace-only messages BEFORE JSON parsing
+		// This prevents unnecessary CPU cycles on invalid messages
+		trimmedBody := strings.TrimSpace(string(delivery.Body))
+		if trimmedBody == "" {
+			lets.LogERL("rabbitmq-empty-message", "RabbitMQ Server: Empty message received on queue %s (consumer: %s)", r.queue.Name, consumer.GetName())
+
+			// NACK the message without requeue to move it to DLX or discard it
+			if !server.autoAck {
+				delivery.Nack(false, false) // multiple=false, requeue=false
+			}
+			continue
 		}
 
 		// Bind body into types.RabbitBody.
 		body := consumer.GetBody()
 		err := json.Unmarshal(delivery.Body, &body)
 		if err != nil {
-			lets.LogE("RabbitMQ Server: %s", err.Error())
+			lets.LogERL("rabbitmq-parse-error", "RabbitMQ Server: JSON parse error for consumer %s: %s", consumer.GetName(), err.Error())
+
+			// NACK the message - it's malformed and won't be processable on retry
+			if !server.autoAck {
+				delivery.Nack(false, false) // multiple=false, requeue=false
+			}
 			continue
 		}
 
@@ -206,37 +319,70 @@ func (r *rabbitConsumer) listenMessage(server *rabbitServer, consumer types.IRab
 
 func (r *rabbitConsumer) reconnect(server *rabbitServer, consumer types.IRabbitMQConsumer) {
 	var err error
-	// Create channel connection.
-	if server.channel, err = server.connection.Channel(); err != nil {
-		lets.LogERL("rabbitmq-reconnect-error", "ERR R00 RabbitMQ: %s", err.Error())
-		return
+	var channel *amqp091.Channel
+
+	// Get channel from pool or legacy
+	if server.usePool && server.channelMgr != nil {
+		pc, err := server.channelMgr.GetChannel()
+		if err != nil {
+			lets.LogERL("rabbitmq-reconnect-channel-error", "ERR R00 RabbitMQ: Failed to get channel: %s", err.Error())
+			return
+		}
+		channel = pc.GetRawChannel()
+	} else {
+		// Create channel connection (legacy).
+		if channel, err = server.connection.Channel(); err != nil {
+			lets.LogERL("rabbitmq-reconnect-error", "ERR R00 RabbitMQ: %s", err.Error())
+			return
+		}
+		server.channel = channel
 	}
 
-	r.qos(server, consumer)
-	r.declare(server, consumer)
+	r.qos(channel, consumer)
+	r.declareWithChannel(channel, server, consumer)
 }
 
-func (r *rabbitConsumer) qos(server *rabbitServer, consumer types.IRabbitMQConsumer) {
+func (r *rabbitConsumer) qos(channel *amqp091.Channel, consumer types.IRabbitMQConsumer) {
 	// Queue channel qos
-	if err := server.channel.Qos(
+	if err := channel.Qos(
 		consumer.GetPrefetchCount(),
 		consumer.GetPrefetchSize(),
 		false,
 	); err != nil {
+		lets.LogERL("rabbitmq-qos-error", "RabbitMQ QoS error: %s", err.Error())
 		return
 	}
 }
 
 func (r *rabbitConsumer) declare(server *rabbitServer, consumer types.IRabbitMQConsumer) {
 	var err error
-	// lets.LogI("RabbitMQ: declare queue ...")
-	if server.channel, err = server.connection.Channel(); err != nil {
-		lets.LogERL("rabbitmq-declare-channel-error", "ERR R00 RabbitMQ: %s", err.Error())
-		return
+	var channel *amqp091.Channel
+
+	// Get channel from pool or legacy
+	if server.usePool && server.channelMgr != nil {
+		pc, err := server.channelMgr.GetChannel()
+		if err != nil {
+			lets.LogERL("rabbitmq-declare-channel-error", "ERR D00 RabbitMQ: Failed to get channel: %s", err.Error())
+			return
+		}
+		channel = pc.GetRawChannel()
+	} else {
+		// Create channel connection (legacy)
+		if channel, err = server.connection.Channel(); err != nil {
+			lets.LogERL("rabbitmq-declare-channel-error", "ERR R00 RabbitMQ: %s", err.Error())
+			return
+		}
+		server.channel = channel
 	}
 
+	r.declareWithChannel(channel, server, consumer)
+}
+
+func (r *rabbitConsumer) declareWithChannel(channel *amqp091.Channel, server *rabbitServer, consumer types.IRabbitMQConsumer) {
+	var err error
+
 	// Declare (or using existing) queue.
-	if r.queue, err = server.channel.QueueDeclare(
+	if r.queue, err = channel.QueueDeclare(
 		consumer.GetQueue(), // name of the queue
 		true,                // durable
 		false,               // delete when unused
@@ -246,8 +392,10 @@ func (r *rabbitConsumer) declare(server *rabbitServer, consumer types.IRabbitMQC
 	); err != nil {
 		lets.LogERL("rabbitmq-queue-declare-error", "ERR D01 RabbitMQ: %s", err.Error())
 		return
-	} // Bind queue to exchange.
-	if err = server.channel.QueueBind(
+	}
+
+	// Bind queue to exchange.
+	if err = channel.QueueBind(
 		r.queue.Name,             // name of the queue
 		consumer.GetRoutingKey(), // routing key
 		consumer.GetExchange(),   // sourceExchange
@@ -267,19 +415,41 @@ func (r *rabbitConsumer) declare(server *rabbitServer, consumer types.IRabbitMQC
 
 // RabbitMQ publisher definitions.
 type RabbitPublisher struct {
-	channel *amqp091.Channel
-	name    string
+	channel    *amqp091.Channel         // Legacy: Direct channel
+	channelMgr *rabbitmq.ChannelManager // New: Channel manager for pooled access
+	name       string
+	usePool    bool
 }
 
 func (r *RabbitPublisher) init(server *rabbitServer, publisher types.IRabbitMQPublisher) {
-	r.channel = server.channel
 	r.name = publisher.GetName()
+	r.usePool = server.usePool
+
+	if server.usePool && server.channelMgr != nil {
+		r.channelMgr = server.channelMgr
+	} else {
+		r.channel = server.channel
+	}
 }
 
 func (r *RabbitPublisher) Publish(event types.IEvent) (err error) {
-	if r.channel == nil {
+	// Get channel (pooled or legacy)
+	var channel *amqp091.Channel
+
+	if r.usePool && r.channelMgr != nil {
+		pc, err := r.channelMgr.GetChannel()
+		if err != nil {
+			lets.LogERL("rabbitmq-publisher-channel-error", "RabbitMQ Publisher: Failed to get channel: %s", err.Error())
+			return err
+		}
+		channel = pc.GetRawChannel()
+	} else {
+		channel = r.channel
+	}
+
+	if channel == nil {
 		lets.LogERL("rabbitmq-publisher-nil-channel", "RabbitMQ Publisher: Channel is nil or publisher not configured.")
-		return
+		return fmt.Errorf("channel is nil")
 	}
 
 	var body = event.GetBody()
@@ -287,7 +457,7 @@ func (r *RabbitPublisher) Publish(event types.IEvent) (err error) {
 
 	// Encode object to json string
 	if event.GetDebug() {
-		seqNo := r.channel.GetNextPublishSeqNo()
+		seqNo := channel.GetNextPublishSeqNo()
 		lets.LogD("RabbitMQ Publisher: to: exchange '%s'; routing key/queue: '%s'", event.GetExchange(), event.GetRoutingKey())
 		lets.LogD("RabbitMQ Publisher: sequence no: %d; %d Bytes; Body: \n%s", seqNo, len(body), string(body))
 	}
@@ -311,7 +481,7 @@ func (r *RabbitPublisher) Publish(event types.IEvent) (err error) {
 		publishing.ReplyTo = replyTo.Get()
 	}
 
-	if err = r.channel.PublishWithContext(ctx,
+	if err = channel.PublishWithContext(ctx,
 		event.GetExchange(),   // Exchange
 		event.GetRoutingKey(), // RoutingKey or queues
 		false,                 // Mandatory
@@ -330,6 +500,9 @@ func RabbitMQ() (disconnectors []func()) {
 	if RabbitMQConfig == nil {
 		return
 	}
+
+	// Start monitoring (every 5 minutes)
+	rabbitmq.StartMonitoring(5 * time.Minute)
 
 	// Running RabbitMQ
 	if servers := RabbitMQConfig.GetServers(); len(servers) != 0 {
@@ -358,7 +531,14 @@ func RabbitMQ() (disconnectors []func()) {
 
 					if i == 0 {
 						//rc.declare(&rs, consumer)
-						rc.qos(&rs, consumer)
+						// Get channel and setup QoS for first consumer
+						if rs.usePool && rs.channelMgr != nil {
+							if pc, err := rs.channelMgr.GetChannel(); err == nil {
+								rc.qos(pc.GetRawChannel(), consumer)
+							}
+						} else if rs.channel != nil {
+							rc.qos(rs.channel, consumer)
+						}
 					}
 
 					consumer.GetListener()(rc.engine)
@@ -367,7 +547,16 @@ func RabbitMQ() (disconnectors []func()) {
 					go func(c types.IRabbitMQConsumer) {
 						wg.Done()
 						rc.declare(&rs, c)
-						rc.qos(&rs, c)
+
+						// Setup QoS for this consumer's channel
+						if rs.usePool && rs.channelMgr != nil {
+							if pc, err := rs.channelMgr.GetChannel(); err == nil {
+								rc.qos(pc.GetRawChannel(), c)
+							}
+						} else if rs.channel != nil {
+							rc.qos(rs.channel, c)
+						}
+
 						rc.consume(&rs, c)
 					}(consumer)
 				}
@@ -392,5 +581,16 @@ func RabbitMQ() (disconnectors []func()) {
 			}
 		}
 	}
+
+	// Register graceful shutdown for connection pool
+	poolShutdown := func() {
+		lets.LogI("RabbitMQ Pool: Initiating graceful shutdown...")
+		if err := rabbitmq.GetConnectionPool().CloseAll(); err != nil {
+			lets.LogE("RabbitMQ Pool: Error during shutdown: %v", err)
+		}
+		lets.LogI("RabbitMQ Pool: Shutdown complete")
+	}
+	disconnectors = append(disconnectors, poolShutdown)
+
 	return
 }
