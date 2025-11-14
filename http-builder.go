@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"reflect"
 	"strings"
 	"time"
@@ -57,13 +59,44 @@ func (h *HttpBuilder) Default() {
 	}
 
 	h.client = &http.Client{
-		Timeout:   time.Duration(5) * time.Second,
+		Timeout:   time.Duration(10) * time.Second,
 		Transport: customTransport,
 	}
 }
 
 func (h *HttpBuilder) MultipartEnable() {
 	h.multipart = true
+}
+
+func (h *HttpBuilder) UseCookie(jar *cookiejar.Jar) error {
+	if jar == nil {
+		var err error
+		jar, err = cookiejar.New(
+			&cookiejar.Options{},
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	h.client.Jar = jar
+
+	return nil
+}
+
+func (h *HttpBuilder) GetCookie() (jar http.CookieJar) {
+	return h.client.Jar
+}
+
+func (h *HttpBuilder) UseProxy(proxyServer string) error {
+	transport := h.client.Transport.(*http.Transport)
+	proxyUrl, err := url.Parse(proxyServer)
+	if err != nil {
+		return err
+	}
+	transport.Proxy = http.ProxyURL(proxyUrl)
+
+	return nil
 }
 
 // Manual set http builder.
@@ -98,7 +131,7 @@ func (h *HttpBuilder) AddHeader(name string, value string) {
 }
 
 // Post request.
-func (h *HttpBuilder) Post(endPoint string, body interface{}, option HttpBuilderOptions) (fullUrl, response string, err error) {
+func (h *HttpBuilder) Post(endPoint string, body interface{}, option HttpBuilderOptions) (fullUrl string, responseStatusCode int, responseBody string, err error) {
 	fullUrl = fmt.Sprintf("%s%s", h.url, endPoint)
 
 	var payload, payloadDebug io.Reader
@@ -162,18 +195,19 @@ func (h *HttpBuilder) Post(endPoint string, body interface{}, option HttpBuilder
 		return
 	}
 
-	response = string(resBody)
+	responseStatusCode = h.response.StatusCode
+	responseBody = string(resBody)
 
 	if option.LogResponse {
 		LogI("HttpBuilder: Response Status: %v", h.response.StatusCode)
-		LogI("HttpBuilder: Response Body: %s\n\n", response)
+		LogI("HttpBuilder: Response Body: %s\n\n", responseBody)
 	}
 
 	return
 }
 
 // Get request.
-func (h *HttpBuilder) Get(endPoint string, urlQuery interface{}, body interface{}, option HttpBuilderOptions) (fullUrl, response string, err error) {
+func (h *HttpBuilder) Get(endPoint string, urlQuery interface{}, body interface{}, option HttpBuilderOptions) (fullUrl string, responseStatusCode int, responseBody string, err error) {
 	fullUrl = fmt.Sprintf("%s%s", h.url, endPoint)
 
 	// Process Query
@@ -185,8 +219,6 @@ func (h *HttpBuilder) Get(endPoint string, urlQuery interface{}, body interface{
 	}
 
 	// Process Body
-	fmt.Println(reflect.TypeOf(body))
-
 	var payload io.Reader
 	if reflect.TypeOf(body) == reflect.TypeOf([]byte(nil)) {
 		payload = strings.NewReader(string(body.([]byte)))
@@ -232,11 +264,12 @@ func (h *HttpBuilder) Get(endPoint string, urlQuery interface{}, body interface{
 		return
 	}
 
-	response = string(resBody)
+	responseStatusCode = h.response.StatusCode
+	responseBody = string(resBody)
 
 	if option.LogResponse {
 		LogI("HttpBuilder: Response Status: %v", h.response.StatusCode)
-		LogI("HttpBuilder: Response Body: %s\n\n", response)
+		LogI("HttpBuilder: Response Body: %s\n\n", responseBody)
 	}
 	return
 }
