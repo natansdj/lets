@@ -2,7 +2,7 @@ module github.com/natansdj/lets
 
 go 1.24.0
 
-retract v1.0.4
+retract [v1.0.4, v1.0.5]
 
 require (
 	github.com/bongnv/saga v0.0.0-20180315103309-62f974ba9423
