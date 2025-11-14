@@ -1,1 +1,4 @@
 .idea
+.github/copilot*
+.vscode
+.DS_Store
