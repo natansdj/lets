@@ -3,6 +3,8 @@ package types
 import (
 	"database/sql"
 	"fmt"
+	"os"
+	"strconv"
 
 	"gorm.io/gorm"
 )
@@ -17,6 +19,13 @@ const (
 	MYSQL_DB_PARSE_TIME = "True"
 	MYSQL_DB_LOC        = "Local"
 	MYSQL_DB_MIGRATION  = false
+
+	// Pool configuration defaults
+	MYSQL_MAX_IDLE_CONNS = 10 // Conservative for MySQL
+	// If you have 5 app instances: Max pool size should be: 151 ÷ 5 = 30 connections per instance
+	MYSQL_MAX_OPEN_CONNS    = 30
+	MYSQL_CONN_MAX_LIFETIME = 300 // 5 minutes (rotate connections)
+	MYSQL_MAX_RETRIES       = 3
 )
 
 type IMySQL interface {
@@ -156,26 +165,45 @@ func (mysql *MySQL) GetDisableNestedTransaction() bool {
 	return mysql.DisableNestedTransaction
 }
 
+// getMySQLEnvInt retrieves an integer from environment variable with validation
+// Returns the default value and logs a warning if env var is not set or invalid
+func getMySQLEnvInt(envKey string, defaultValue int, configName string) int {
+	envValue := os.Getenv(envKey)
+	if envValue == "" {
+		fmt.Printf("Configs MySQL: %s is not set in .env file, using default configuration (%d).\n", envKey, defaultValue)
+		return defaultValue
+	}
+
+	parsedValue, err := strconv.Atoi(envValue)
+	if err != nil {
+		fmt.Printf("Configs MySQL: %s has invalid value '%s' in .env file, using default configuration (%d).\n", envKey, envValue, defaultValue)
+		return defaultValue
+	}
+
+	if parsedValue <= 0 {
+		fmt.Printf("Configs MySQL: %s must be positive, got %d, using default configuration (%d).\n", envKey, parsedValue, defaultValue)
+		return defaultValue
+	}
+
+	return parsedValue
+}
+
 // GetMaxIdleConns returns the maximum number of connections in the idle connection pool
 func (mysql *MySQL) GetMaxIdleConns() int {
-	// Default: 10 connections
-	return 10
+	return getMySQLEnvInt("MYSQL_MAX_IDLE_CONNS", MYSQL_MAX_IDLE_CONNS, "Max Idle Connections")
 }
 
 // GetMaxOpenConns returns the maximum number of open connections to the database
 func (mysql *MySQL) GetMaxOpenConns() int {
-	// Default: 100 connections
-	return 100
+	return getMySQLEnvInt("MYSQL_MAX_OPEN_CONNS", MYSQL_MAX_OPEN_CONNS, "Max Open Connections")
 }
 
 // GetConnMaxLifetime returns the maximum amount of time a connection may be reused (in seconds)
 func (mysql *MySQL) GetConnMaxLifetime() int {
-	// Default: 3 minutes (180 seconds)
-	return 180
+	return getMySQLEnvInt("MYSQL_CONN_MAX_LIFETIME", MYSQL_CONN_MAX_LIFETIME, "Connection Max Lifetime")
 }
 
 // GetMaxRetries returns the maximum number of retry attempts for connection
 func (mysql *MySQL) GetMaxRetries() int {
-	// Default: 3 retries
-	return 3
+	return getMySQLEnvInt("MYSQL_MAX_RETRIES", MYSQL_MAX_RETRIES, "Max Retries")
 }
