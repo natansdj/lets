@@ -19,15 +19,17 @@ type IGrpcClient interface {
 	GetPort() string
 	GetClientOptions() []grpc.DialOption
 	GetClients() []IGrpcServiceClient
+	GetMaxPoolConnectionsPerAddress() int
 }
 
 // Client information
 type GrpcClient struct {
-	Name          string
-	Host          string
-	Port          string
-	ClientOptions []grpc.DialOption
-	Clients       []IGrpcServiceClient
+	Name               string // Client name (e.g transaction-grpc)
+	Host               string // Hostname or IP address of the gRPC server
+	Port               string // Port
+	ClientOptions      []grpc.DialOption
+	Clients            []IGrpcServiceClient
+	MaxPoolConnections int // Maximum number of connections in the connection pool, it will use round robin pool
 }
 
 // Get Name
@@ -71,4 +73,8 @@ func (gc *GrpcClient) GetClients() []IGrpcServiceClient {
 // Get Client Option
 func (gc *GrpcClient) GetClientOptions() []grpc.DialOption {
 	return gc.ClientOptions
+}
+
+func (gc *GrpcClient) GetMaxPoolConnectionsPerAddress() int {
+	return gc.MaxPoolConnections
 }
