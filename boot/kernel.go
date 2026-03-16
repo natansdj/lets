@@ -16,8 +16,6 @@ var Initializer = []func(){
 
 // List of framework that start on lets
 var Servers = []func() []func(){
-	drivers.MySQL,
-	drivers.SqLiteClient,
 	drivers.Redis,
 	drivers.MongoDB,
 	frameworks.Grpc,
@@ -51,7 +49,10 @@ func OnInit() {
 
 // Bootstrap frameworks
 func OnMain(waiter ...chan<- int) {
-	for _, runner := range Servers {
+	runners := append([]func() []func(){}, drivers.ResolveSQLDrivers()...)
+	runners = append(runners, Servers...)
+
+	for _, runner := range runners {
 		stopper := runner()
 
 		for _, stopFunc := range stopper {

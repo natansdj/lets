@@ -66,8 +66,21 @@ func Launching() {
 		}
 	}
 
-	if drivers.RedisConfig != nil {
+	if clients := drivers.PostgresConfig; len(clients) > 0 {
 		if len(drivers.MySQLConfig) == 0 {
+			printer.printSection("Database Drivers")
+		}
+		printer.printHeading("PostgreSQL Clients")
+		for i, client := range clients {
+			if len(clients) > 1 {
+				printer.printSubHeading(fmt.Sprintf("Client #%d", i+1))
+			}
+			printer.printStruct(client)
+		}
+	}
+
+	if drivers.RedisConfig != nil {
+		if len(drivers.MySQLConfig) == 0 && len(drivers.PostgresConfig) == 0 {
 			printer.printSection("Database Drivers")
 		}
 		printer.printHeading("Redis Client")
@@ -75,7 +88,7 @@ func Launching() {
 	}
 
 	if drivers.MongoDBConfig != nil {
-		if len(drivers.MySQLConfig) == 0 && drivers.RedisConfig == nil {
+		if len(drivers.MySQLConfig) == 0 && len(drivers.PostgresConfig) == 0 && drivers.RedisConfig == nil {
 			printer.printSection("Database Drivers")
 		}
 		printer.printHeading("MongoDB Client")
