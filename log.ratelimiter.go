@@ -77,3 +77,27 @@ func LogIRL(key string, format string, args ...interface{}) {
 		LogI(format, args...)
 	}
 }
+
+// onceLogged records keys already emitted via the LogXOnce helpers so each key
+// logs exactly once per process. It is separate from the RateLimiter: a
+// one-time message must never be re-emitted, regardless of elapsed time.
+var onceLogged sync.Map
+
+// allowOnce reports whether key is being seen for the first time, recording it
+// so subsequent calls return false. It returns true exactly once per key and is
+// safe for concurrent use.
+func allowOnce(key string) bool {
+	_, loaded := onceLogged.LoadOrStore(key, struct{}{})
+	return !loaded
+}
+
+// LogWOnce (Log Warning Once) logs a warning the first time it is called for
+// key, then stays silent for that key for the rest of the process lifetime.
+// Use it for startup or configuration warnings that are read on a hot path -
+// e.g. a periodic monitor that re-reads environment variables - so they appear
+// once at init instead of repeating forever.
+func LogWOnce(key string, format string, args ...interface{}) {
+	if allowOnce(key) {
+		LogW(format, args...)
+	}
+}

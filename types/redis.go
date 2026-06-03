@@ -115,23 +115,26 @@ func (r *Redis) GetDsn() string {
 	)
 }
 
-// getEnvInt retrieves an integer from environment variable with validation
-// Returns the default value and logs a warning if env var is not set or invalid
+// getEnvInt retrieves an integer from an environment variable with validation.
+// It returns defaultValue when the variable is unset, unparseable, or not
+// positive. Warnings are emitted once per key: these getters run on the 30s
+// Redis monitoring loop, so warning on every call would repeat forever (see
+// lets.LogWOnce).
 func getEnvInt(envKey string, defaultValue int, configName string) int {
 	envValue := os.Getenv(envKey)
 	if envValue == "" {
-		lets.LogW("Configs Redis: %s is not set in .env file, using default configuration (%d).", envKey, defaultValue)
+		lets.LogWOnce(envKey, "Configs Redis: %s is not set in .env file, using default configuration (%d).", envKey, defaultValue)
 		return defaultValue
 	}
 
 	parsedValue, err := strconv.Atoi(envValue)
 	if err != nil {
-		lets.LogW("Configs Redis: %s has invalid value '%s' in .env file, using default configuration (%d).", envKey, envValue, defaultValue)
+		lets.LogWOnce(envKey, "Configs Redis: %s has invalid value '%s' in .env file, using default configuration (%d).", envKey, envValue, defaultValue)
 		return defaultValue
 	}
 
 	if parsedValue <= 0 {
-		lets.LogW("Configs Redis: %s must be positive, got %d, using default configuration (%d).", envKey, parsedValue, defaultValue)
+		lets.LogWOnce(envKey, "Configs Redis: %s must be positive, got %d, using default configuration (%d).", envKey, parsedValue, defaultValue)
 		return defaultValue
 	}
 
