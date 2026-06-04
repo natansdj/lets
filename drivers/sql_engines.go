@@ -3,7 +3,6 @@ package drivers
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/natansdj/lets"
@@ -101,24 +100,6 @@ func resolveSQLDriversStrict() ([]func() []func(), error) {
 		return resolvedRunners, nil
 	}
 
-	if !strictDBEngineSelectionEnabled() && strings.TrimSpace(os.Getenv("DB_ENGINE")) == "" {
-		resolvedRunners := []func() []func(){}
-		for _, name := range []string{"postgres", "mariadb", "sqlite"} {
-			registration := runnerByName(name)
-			if registration == nil || !registration.enabled() {
-				continue
-			}
-
-			resolvedRunners = append(resolvedRunners, registration.run)
-		}
-
-		if len(resolvedRunners) == 0 {
-			return nil, fmt.Errorf("no SQL drivers available for auto-detection")
-		}
-
-		return resolvedRunners, nil
-	}
-
 	primaryEngine, err := parsePrimaryEngine(os.Getenv("DB_ENGINE"))
 	if err != nil {
 		return nil, err
@@ -149,7 +130,7 @@ func resolveSQLDriversStrict() ([]func() []func(), error) {
 func parsePrimaryEngine(raw string) (string, error) {
 	engine := normalizeSQLDriverName(raw)
 	if engine == "" {
-		return "", fmt.Errorf("DB_ENGINE is required and must be one of: mariadb, mysql, postgres")
+		return "mariadb", nil
 	}
 
 	switch engine {
@@ -201,20 +182,6 @@ func hasEnabledPrimaryConfig() bool {
 	}
 
 	return false
-}
-
-func strictDBEngineSelectionEnabled() bool {
-	raw := strings.TrimSpace(os.Getenv("LETS_STRICT_DB_ENGINE"))
-	if raw == "" {
-		return true
-	}
-
-	parsed, err := strconv.ParseBool(raw)
-	if err != nil {
-		return true
-	}
-
-	return parsed
 }
 
 func normalizeSQLDriverName(name string) string {

@@ -26,15 +26,37 @@ func TestResolveSQLDriversStrict_NoPrimaryConfig_AllowsNoEngine(t *testing.T) {
 	}
 }
 
-func TestResolveSQLDriversStrict_RequiresEngineWhenPrimaryConfigured(t *testing.T) {
+func TestResolveSQLDriversStrict_DefaultsToMariaDBWhenEngineMissing(t *testing.T) {
 	t.Setenv("DB_ENGINE", "")
 	t.Setenv("LETS_SQL_DRIVERS", "")
 	resetSQLDriverConfigs()
 	MySQLConfig = []types.IMySQL{&types.MySQL{}}
 
-	_, err := resolveSQLDriversStrict()
-	if err == nil {
-		t.Fatal("expected DB_ENGINE required error")
+	runners, err := resolveSQLDriversStrict()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(runners) != 1 {
+		t.Fatalf("expected default mariadb runner, got %d", len(runners))
+	}
+}
+
+func TestResolveSQLDriversStrict_DefaultEngineIgnoresLegacyAutoDetect(t *testing.T) {
+	t.Setenv("DB_ENGINE", "")
+	t.Setenv("LETS_SQL_DRIVERS", "")
+	t.Setenv("LETS_STRICT_DB_ENGINE", "false")
+	resetSQLDriverConfigs()
+	MySQLConfig = []types.IMySQL{&types.MySQL{}}
+	PostgresConfig = []types.IPostgres{&types.Postgres{}}
+	sqliteCfg := []*types.SqLite{{DBPath: "main.db"}}
+	SqLiteConfig = &sqliteCfg
+
+	runners, err := resolveSQLDriversStrict()
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(runners) != 2 {
+		t.Fatalf("expected default mariadb plus sqlite runners, got %d", len(runners))
 	}
 }
 
