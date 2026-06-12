@@ -64,6 +64,8 @@ type grpcClient struct {
 	maxPool     int
 	mu          sync.Mutex
 	stopMonitor chan struct{}
+	stopOnce    sync.Once     // guards close(stopMonitor) so it happens exactly once
+	monitorDone chan struct{} // closed when monitorPool returns; Disconnect waits on it
 	tfSince     map[int]time.Time
 }
 
@@ -114,10 +116,15 @@ func (rpc *grpcClient) connect() (err error) {
 func (rpc *grpcClient) Disconnect() {
 	lets.LogI("GRPC Client Stopping ...")
 
-	// Stop monitor
+	// Signal the monitor to stop and wait for it to fully exit BEFORE tearing
+	// down connections, so it cannot read or recreate rpc.engines mid-teardown.
+	// Do NOT nil out stopMonitor here: that write races monitorPool's channel
+	// read in its select. stopOnce keeps the close idempotent instead.
 	if rpc.stopMonitor != nil {
-		close(rpc.stopMonitor)
-		rpc.stopMonitor = nil
+		rpc.stopOnce.Do(func() { close(rpc.stopMonitor) })
+		if rpc.monitorDone != nil {
+			<-rpc.monitorDone
+		}
 	}
 
 	if len(rpc.engines) > 0 {
@@ -206,8 +213,12 @@ func (rpc *grpcClient) startMonitor() {
 		return
 	}
 	rpc.stopMonitor = make(chan struct{})
+	rpc.monitorDone = make(chan struct{})
 	rpc.tfSince = make(map[int]time.Time)
-	go rpc.monitorPool()
+	go func() {
+		defer close(rpc.monitorDone)
+		rpc.monitorPool()
+	}()
 }
 
 // monitorPool checks connection states periodically and recreates unhealthy ones
@@ -271,7 +282,9 @@ func (rpc *grpcClient) monitorPool() {
 				// Health check for non-ready states; recreate if not serving
 				if state != connectivity.Ready {
 					healthClient := grpc_health_v1.NewHealthClient(conn)
-					resp, err := healthClient.Check(context.Background(), &grpc_health_v1.HealthCheckRequest{})
+					hCtx, hCancel := context.WithTimeout(context.Background(), 5*time.Second)
+					resp, err := healthClient.Check(hCtx, &grpc_health_v1.HealthCheckRequest{})
+					hCancel()
 					if err != nil || resp.Status != grpc_health_v1.HealthCheckResponse_SERVING {
 						lets.LogD("gRPC ERR health check target=%s idx=%d err=%v", rpc.dsn, i, err)
 						newConn, err := grpc.NewClient(rpc.dsn, rpc.dialOptions...)
